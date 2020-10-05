@@ -1,6 +1,4 @@
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.ParseException;
@@ -15,8 +13,9 @@ public class Main {
 
     public static final String SYSTEM_DIRECTORY = System.getProperty("user.dir");
 
-    public static void main(String[] args) {
-
+    public static void main(String[] args) throws IOException {
+        final String outputFile = "Output.txt";
+        System.setOut(new PrintStream(new File(outputFile)));
         final String configFileName = "Config.txt";
         final AtomicReference<Double> epsilonMinutes = new AtomicReference<>();
         final AtomicReference<String> inputFormat = new AtomicReference<>();
@@ -30,17 +29,31 @@ public class Main {
         ArrayList<Class> classes = new ArrayList<>();
         ArrayList<String> fileExtensions = new ArrayList<>();
 
+        System.out.println("Reading config files");
         readConfigFile(getScanner(configFileName), classes, fileExtensions, epsilonMinutes, inputFormat, outputFormat);
 
+        System.out.println("Done reading config file");
         ArrayList<FileToMove> files = new ArrayList<>();
+        System.out.println("Getting files in folder");
         getFilesInFolder(configFileName, inputFormat.get(), fileExtensions, files);
+        System.out.println("Done getting files in folder");
 
+        System.out.println("Before assigning destinations");
+        printFiles(files);
+
+        System.out.println("Assigning destinations");
         assignDestinations(classes, files, epsilonMinutes.get());
 
         sortFiles(files);
-        classes.forEach(System.out::println);
-        files.forEach(System.out::println);
+
+        System.out.println("Before moving");
+        printFiles(files);
         moveFiles(files, formatter);
+    }
+
+    private static void printFiles(List<FileToMove> files) {
+        System.out.printf("Printing %d file%s\n", files.size(), files.size() > 1 ? "s" : "");
+        files.forEach(System.out::println);
     }
 
     private static void sortFiles(ArrayList<FileToMove> files) {
@@ -96,21 +109,28 @@ public class Main {
                                            double epsilonMinutes) {
         for (Class class_ : classes) {
             for (FileToMove file : files) {
+                System.out.printf("\nIterating over class %s and file %s\n", class_.name, file.file.getName());
                 Calendar cal = Calendar.getInstance();
 
                 cal.setTime(file.date);
                 //Not sure on the -1
-                DayOfWeek dayOfWeek = DayOfWeek.of(cal.get(Calendar.DAY_OF_WEEK) - 1);
-
-                if (class_.daysOfWeek.contains(dayOfWeek)) {
-                    double difference = Math.abs(dateToMinutes(file.date) - dateToMinutes(class_.startTime));
+                DayOfWeek dayOfWeekOfFile = DayOfWeek.of(cal.get(Calendar.DAY_OF_WEEK) - 1);
+                boolean doesFileOccurOnDay = class_.daysOfWeek.contains(dayOfWeekOfFile);
+                System.out.printf("Class %s %s on date of file\n", class_.name, doesFileOccurOnDay ? "occurs" : "does not occur");
+                if (doesFileOccurOnDay) {
+                    double difference = Math.abs(file.startTimeMinutes - class_.startTimeMinutes);
+                    System.out.printf("Difference in minutes: %1.3f\n", difference);
                     if (difference <= epsilonMinutes) {
+                        System.out.println("File located");
                         if (Double.isNaN(file.delta) || (epsilonMinutes < file.delta)) {
                             file.setDestination(class_.name);
                             file.setDelta(epsilonMinutes);
+                        } else {
+                            System.out.println("File already has destination");
                         }
                     }
                 }
+                System.out.println();
             }
         }
     }
@@ -160,7 +180,6 @@ public class Main {
 
     private static void readConfigFile(Scanner
                                                scanner, ArrayList<Class> classes, ArrayList<String> fileExtension, AtomicReference<Double> epsilonMinutes, AtomicReference<String> inputFormat, AtomicReference<String> outputFormat) {
-        SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
 
         //First line is file extensions
         String line = scanner.nextLine();
@@ -179,15 +198,24 @@ public class Main {
 
         while (scanner.hasNext()) {
             line = scanner.nextLine();
+//            System.out.println("line : " + line);
             split = line.split(",");
             String name = split[0];
 
             Date startDate = null;
+            String[] dateSplit = split[1].split(":");
+//            System.out.println("Date split: " + List.of(dateSplit).toString());
             try {
-                startDate = df.parse(split[1]);
-            } catch (ParseException e) {
-                e.printStackTrace();
+                startDate = new Date(0,
+                        0,
+                        0,
+                        Integer.parseInt(dateSplit[0]),
+                        Integer.parseInt(dateSplit[1]),
+                        Integer.parseInt(dateSplit[2]));
+            } catch (NumberFormatException num) {
+                num.printStackTrace();
             }
+
             ArrayList<DayOfWeek> days = new ArrayList<>();
             for (int i = 2; i < split.length; i++) {
                 final int splitAsInt = Integer.parseInt(split[i]);
@@ -195,7 +223,9 @@ public class Main {
                 days.add(day);
             }
 
-            classes.add(new Class(name, startDate, days));
+            Class clasz = new Class(name, startDate, days);
+            System.out.println("Adding class " + clasz.toString());
+            classes.add(clasz);
         }
     }
 
@@ -219,11 +249,13 @@ public class Main {
         private String destination = null;
         private final Date date;
         private final File file;
+        private final double startTimeMinutes;
         private double delta = Double.NaN;
 
         public FileToMove(Date date, File file) {
             this.date = date;
             this.file = file;
+            startTimeMinutes = dateToMinutes(date);
         }
 
         public void setDestination(String destination) {
@@ -243,7 +275,9 @@ public class Main {
             return "FileToMove{" +
                     "destination='" + destination + '\'' +
                     ", date=" + date +
-                    ", file=" + file.getAbsolutePath() +
+                    ", file=" + file +
+                    ", startTimeMinutes=" + startTimeMinutes +
+                    ", delta=" + delta +
                     '}';
         }
 
@@ -255,11 +289,13 @@ public class Main {
     static class Class {
         private final String name;
         private final Date startTime;
+        private final double startTimeMinutes;
         private final List<DayOfWeek> daysOfWeek;
 
         public Class(String name, Date startTime, List<DayOfWeek> dayOfWeek) {
             this.name = name;
             this.startTime = startTime;
+            startTimeMinutes = dateToMinutes(startTime);
             this.daysOfWeek = dayOfWeek;
         }
 
@@ -268,6 +304,7 @@ public class Main {
             return "Class{" +
                     "name='" + name + '\'' +
                     ", startTime=" + startTime +
+                    ", startTimeMinutes=" + startTimeMinutes +
                     ", daysOfWeek=" + daysOfWeek +
                     '}';
         }
