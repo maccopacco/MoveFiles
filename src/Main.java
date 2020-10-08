@@ -51,13 +51,7 @@ public class Main {
                 onStandard(configFileName, epsilonMinutes, inputFormat, formatter, classes, fileExtensions);
                 break;
             case RENAME:
-                Optional<Class> classToMoveToOptional = classes.stream().filter(class_ -> class_.name.equals(args[1])).findFirst();
-                if (classToMoveToOptional.isEmpty()) {
-                    System.out.printf("No class found of name [%s]\n", args[0]);
-                    return;
-                }
-                Class classToMoveTo = classToMoveToOptional.get();
-                List<FileToMove> files = new ArrayList<>();
+                              List<FileToMove> files = new ArrayList<>();
                 //Get all files in folder arg[0] (or move from arg)
                 getFilesInFolder(configFileName, args[0], fileExtensions, toConsume -> {
                     //Undo the output format
@@ -74,7 +68,7 @@ public class Main {
                         System.exit(0);
                     }
                     FileToMove file = new FileToMove(targetTime, toConsume.file);
-                    file.setDestination(classToMoveTo.name);
+                    file.setDestination(args[1]);
 
                     files.add(file);
                 });
