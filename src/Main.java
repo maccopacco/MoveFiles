@@ -7,15 +7,28 @@ import java.time.DayOfWeek;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 public class Main {
 
     public static final String SYSTEM_DIRECTORY = System.getProperty("user.dir");
 
+    enum Mode {
+        STANDARD, RENAME
+    }
+
     public static void main(String[] args) throws IOException {
         final String outputFile = "Output.txt";
         System.setOut(new PrintStream(new File(outputFile)));
+
+        Mode mode = Mode.STANDARD;
+        if (args.length == 2 && args[0] != null && args[1] != null) {
+            mode = Mode.RENAME;
+        }
+        System.out.printf("Mode = %s\n", mode);
+
         final String configFileName = "Config.txt";
         final AtomicReference<Double> epsilonMinutes = new AtomicReference<>();
         final AtomicReference<String> inputFormat = new AtomicReference<>();
@@ -31,11 +44,59 @@ public class Main {
 
         System.out.println("Reading config files");
         readConfigFile(getScanner(configFileName), classes, fileExtensions, epsilonMinutes, inputFormat, outputFormat);
-
         System.out.println("Done reading config file");
+
+        switch (mode) {
+            case STANDARD:
+                onStandard(configFileName, epsilonMinutes, inputFormat, formatter, classes, fileExtensions);
+                break;
+            case RENAME:
+                Optional<Class> classToMoveToOptional = classes.stream().filter(class_ -> class_.name.equals(args[1])).findFirst();
+                if (classToMoveToOptional.isEmpty()) {
+                    System.out.printf("No class found of name [%s]\n", args[0]);
+                    return;
+                }
+                Class classToMoveTo = classToMoveToOptional.get();
+                List<FileToMove> files = new ArrayList<>();
+                //Get all files in folder arg[0] (or move from arg)
+                getFilesInFolder(configFileName, args[0], fileExtensions, toConsume -> {
+                    //Undo the output format
+                    String classDate = toConsume.getFileName().split(" ")[1];
+
+                    Date targetTime = null;
+                    try {
+                        //Use the output format to parse back the date
+                        targetTime = new SimpleDateFormat(outputFormat.get()).parse(classDate);
+                    } catch (ParseException e) {
+                        StringWriter errors = new StringWriter();
+                        e.printStackTrace(new PrintWriter(errors));
+                        System.out.println(errors.toString());
+                        System.exit(0);
+                    }
+                    FileToMove file = new FileToMove(targetTime, toConsume.file);
+                    file.setDestination(classToMoveTo.name);
+
+                    files.add(file);
+                });
+                System.out.printf("Files to rename: %s\n", files.toString());
+                moveFiles(files, formatter);
+                break;
+        }
+    }
+
+    private static void onStandard(String configFileName, AtomicReference<Double> epsilonMinutes, AtomicReference<String> inputFormat, FileInsideFolderFormatter formatter, ArrayList<Class> classes, ArrayList<String> fileExtensions) {
         ArrayList<FileToMove> files = new ArrayList<>();
         System.out.println("Getting files in folder");
-        getFilesInFolder(configFileName, inputFormat.get(), fileExtensions, files);
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat(inputFormat.get());
+        getFilesInFolder(configFileName, null, fileExtensions, (ToConsume c) -> {
+            try {
+                Date date = dateFormat.parse(c.getFileName());
+                files.add(new FileToMove(date, c.getFile()));
+            } catch (ParseException e) {
+                e.printStackTrace();
+            }
+        });
         System.out.println("Done getting files in folder");
 
         System.out.println("Before assigning destinations");
@@ -50,6 +111,7 @@ public class Main {
         printFiles(files);
         moveFiles(files, formatter);
     }
+
 
     private static void printFiles(List<FileToMove> files) {
         System.out.printf("Printing %d file%s\n", files.size(), files.size() > 1 ? "s" : "");
@@ -84,7 +146,7 @@ public class Main {
         return SYSTEM_DIRECTORY + "/" + file.destination + "/" + formatter.format(file) + partString + file.getFileExtension();
     }
 
-    private static void moveFiles(ArrayList<FileToMove> files, FileInsideFolderFormatter formatter) {
+    private static void moveFiles(List<FileToMove> files, FileInsideFolderFormatter formatter) {
         for (FileToMove file : files) {
             if (file.destination != null) {
 
@@ -109,7 +171,7 @@ public class Main {
                                            double epsilonMinutes) {
         for (Class class_ : classes) {
             for (FileToMove file : files) {
-                System.out.printf("\nIterating over class %s and file %s\n", class_.name, file.file.getName());
+                System.out.printf("Iterating over class %s and file %s\n", class_.name, file.file.getName());
                 Calendar cal = Calendar.getInstance();
 
                 cal.setTime(file.date);
@@ -144,16 +206,19 @@ public class Main {
         return new Date(now.getYear(), now.getMonth(), now.getDay());
     }
 
-    private static void getFilesInFolder(String
-                                                 configFileName, String inputFormat, ArrayList<String> validFileExtensions, ArrayList<FileToMove> files) {
-        File dir = new File(SYSTEM_DIRECTORY + "/");
+    private static void getFilesInFolder(String configFileName, String directory, ArrayList<String> validFileExtensions, Consumer<ToConsume> consumeConsumer) {
+        final String formattedDirectory = directory == null ? "" : directory + "/";
+        File dir = new File(SYSTEM_DIRECTORY + "/" + formattedDirectory);
         String contents[] = dir.list();
 
-        SimpleDateFormat dateFormat = new SimpleDateFormat(inputFormat);
-
+        System.out.printf("Amount of files in [%s]: %d\n", dir.getAbsolutePath(), contents == null ? 0 : contents.length);
+        if (contents == null) {
+            return;
+        }
         for (String fullFileName : contents) {
-            File f = new File(fullFileName);
-            if (f.isFile() && !(f.getName().matches(configFileName))) {
+            File f = new File(formattedDirectory + fullFileName);
+            boolean isConfigFile = f.getName().matches(configFileName);
+            if (f.isFile() && !isConfigFile) {
                 String[] split = fullFileName.split("\\.");
                 final String fileName = split[0];
                 final String fileExtension = split[1];
@@ -167,19 +232,38 @@ public class Main {
 
 
                 if (validFileExtension.get()) {
-                    try {
-                        Date date = dateFormat.parse(fileName);
-                        files.add(new FileToMove(date, f));
-                    } catch (ParseException e) {
-                        e.printStackTrace();
-                    }
+                    consumeConsumer.accept(new ToConsume(f, fileName, fileExtension));
                 }
             }
         }
     }
 
-    private static void readConfigFile(Scanner
-                                               scanner, ArrayList<Class> classes, ArrayList<String> fileExtension, AtomicReference<Double> epsilonMinutes, AtomicReference<String> inputFormat, AtomicReference<String> outputFormat) {
+    private static class ToConsume {
+        private File file;
+        private final String fileName;
+        private final String fileExtension;
+
+        public ToConsume(File file, String fileName, String fileExtension) {
+            this.file = file;
+            this.fileName = fileName;
+            this.fileExtension = fileExtension;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public File getFile() {
+            return file;
+        }
+    }
+
+    private static void readConfigFile(Scanner scanner,
+                                       ArrayList<Class> classes,
+                                       ArrayList<String> fileExtension,
+                                       AtomicReference<Double> epsilonMinutes,
+                                       AtomicReference<String> inputFormat,
+                                       AtomicReference<String> outputFormat) {
 
         //First line is file extensions
         String line = scanner.nextLine();
