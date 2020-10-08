@@ -51,31 +51,35 @@ public class Main {
                 onStandard(configFileName, epsilonMinutes, inputFormat, formatter, classes, fileExtensions);
                 break;
             case RENAME:
-                              List<FileToMove> files = new ArrayList<>();
-                //Get all files in folder arg[0] (or move from arg)
-                getFilesInFolder(configFileName, args[0], fileExtensions, toConsume -> {
-                    //Undo the output format
-                    String classDate = toConsume.getFileName().split(" ")[1];
-
-                    Date targetTime = null;
-                    try {
-                        //Use the output format to parse back the date
-                        targetTime = new SimpleDateFormat(outputFormat.get()).parse(classDate);
-                    } catch (ParseException e) {
-                        StringWriter errors = new StringWriter();
-                        e.printStackTrace(new PrintWriter(errors));
-                        System.out.println(errors.toString());
-                        System.exit(0);
-                    }
-                    FileToMove file = new FileToMove(targetTime, toConsume.file);
-                    file.setDestination(args[1]);
-
-                    files.add(file);
-                });
-                System.out.printf("Files to rename: %s\n", files.toString());
-                moveFiles(files, formatter);
+                onRename(args, configFileName, outputFormat, formatter, fileExtensions);
                 break;
         }
+    }
+
+    private static void onRename(String[] args, String configFileName, AtomicReference<String> outputFormat, FileInsideFolderFormatter formatter, ArrayList<String> fileExtensions) {
+        List<FileToMove> files = new ArrayList<>();
+        //Get all files in folder arg[0] (or move from arg)
+        getFilesInFolder(configFileName, args[0], fileExtensions, toConsume -> {
+            //Undo the output format
+            String classDate = toConsume.getFileName().split(" ")[1];
+
+            Date targetTime = null;
+            try {
+                //Use the output format to parse back the date
+                targetTime = new SimpleDateFormat(outputFormat.get()).parse(classDate);
+            } catch (ParseException e) {
+                StringWriter errors = new StringWriter();
+                e.printStackTrace(new PrintWriter(errors));
+                System.out.println(errors.toString());
+                System.exit(0);
+            }
+            FileToMove file = new FileToMove(targetTime, toConsume.file);
+            file.setDestination(args[1]);
+
+            files.add(file);
+        });
+        System.out.printf("Files to rename: %s\n", files.toString());
+        moveFiles(files, formatter);
     }
 
     private static void onStandard(String configFileName, AtomicReference<Double> epsilonMinutes, AtomicReference<String> inputFormat, FileInsideFolderFormatter formatter, ArrayList<Class> classes, ArrayList<String> fileExtensions) {
