@@ -13,4 +13,9 @@ CS231,13:20:00,2,5
 PHYS115,15:35:00,3
 ```
 
-and moves video recordings of Kettering classes into appropriate folders by name of file (start of recording time by OBS)
+and moves video recordings of Kettering classes into appropriate folders by 
+* name of file (start of recording time by OBS)
+* command line arguments for renaming
+
+```MoveFiles.jar PHYS214 PHYS224``` moves files from PHYS214 folder to PHYS224 folder
+  
