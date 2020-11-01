@@ -173,8 +173,13 @@ public class Main {
                 Calendar cal = Calendar.getInstance();
 
                 cal.setTime(file.date);
-                //Not sure on the -1
-                DayOfWeek dayOfWeekOfFile = DayOfWeek.of(cal.get(Calendar.DAY_OF_WEEK) - 1);
+                final int dayOfWeek = cal.get(Calendar.DAY_OF_WEEK);
+
+                int changedDay = dayOfWeek - 2;
+                if (changedDay < 0) {
+                    changedDay += 7;
+                }
+                DayOfWeek dayOfWeekOfFile = DayOfWeek.of(changedDay + 1);
                 boolean doesFileOccurOnDay = class_.daysOfWeek.contains(dayOfWeekOfFile);
                 System.out.printf("Class %s %s on date of file\n", class_.name, doesFileOccurOnDay ? "occurs" : "does not occur");
                 if (doesFileOccurOnDay) {
